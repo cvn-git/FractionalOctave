@@ -7,7 +7,7 @@ from FractionalOctave.spec import Spec
 
 class Filterbanks:
     r""" Multi-rate filterbanks using fractional-octave filters """
-    def __init__(self, sample_rate, spec=Spec(), filter_order=None, plotting=False):
+    def __init__(self, sample_rate, spec=Spec(), filter_order=None, dec_stop=80.0, plotting=False):
         r"""
         Construct the filterbanks
 
@@ -19,6 +19,9 @@ class Filterbanks:
             IEC specifications
         filter_order : Int
             Band filter order
+        dec_stop : float
+            Minimum stop-band attenuation [dB] for the decimation filter. This value influences the dynamic range for
+            spectrogram analysis
         plotting : bool
             Enable plotting
         """
@@ -52,7 +55,8 @@ class Filterbanks:
             self._filters.append(scipy.signal.butter(filter_order, [f1, f2], 'bandpass', output='sos', fs=sample_rate))
 
         # Design decimation filter
-        self._dec_filter = scipy.signal.cheby2(10, 80.0, 1 - max_w / 2, output='sos')
+        order, wn = scipy.signal.cheb2ord(max_w / 2, 1 - max_w / 2, 1.0, dec_stop)
+        self._dec_filter = scipy.signal.cheby2(order, dec_stop, wn, output='sos')
 
         if plotting:
             f_span = np.linspace(0, sample_rate / 2, 1000)
@@ -80,6 +84,7 @@ class Filterbanks:
             plt.figure()
             plt.plot(f_span, 20 * np.log10(np.abs(scipy.signal.sosfreqz(self._dec_filter, f_span, fs=sample_rate)[1])))
             plt.xlim([0, sample_rate / 2])
+            y_lim = [-dec_stop - 10.0, 10.0]
             plt.ylim(y_lim)
             plt.plot(np.ones(2) * f_lim / 2, y_lim, 'k--')
             plt.plot(np.ones(2) * (sample_rate - f_lim) / 2, y_lim, 'k--')
@@ -145,6 +150,52 @@ class Filterbanks:
             H = scipy.signal.sosfreqz(self._filters[fraction_index], np.asarray(freq) * 2, fs=self._sample_rate)[1]
             Hdec = scipy.signal.sosfreqz(self._dec_filter, freq, fs=self._sample_rate)[1]
             return 20 * np.log10(np.abs(H) * np.abs(Hdec))
+
+    def spectrogram(self, signal, num_octaves=4, mode='psd'):
+        r"""
+        Compute spectrogram of a given signal
+
+        Parameters
+        ----------
+        signal : array-like
+        num_octaves : Int
+            Number of octaves for the spectrogram analysis
+        mode : str
+            'psd': power spectral density
+            'power': total band power
+
+        Returns
+        -------
+        Sxx : ndarray
+            Spectrogram
+        fc : ndarray
+            Bands' centre frequencies
+        fl : ndarray
+            Bands' lower frequencies
+        fu : ndarray
+            Bands' upper frequencies
+        """
+        frac = self._spec.fraction()
+        Sxx = np.zeros(frac * num_octaves)
+        fc = np.zeros(frac * num_octaves)
+        fl = np.zeros(frac * num_octaves)
+        fu = np.zeros(frac * num_octaves)
+        for octave_idx in range(num_octaves):
+            for frac_idx in range(frac):
+                data_idx = (num_octaves - octave_idx - 1) * frac + frac_idx
+                band_idx = self._max_band_index - (octave_idx + 1) * frac + frac_idx + 1
+                fc[data_idx], fl[data_idx], fu[data_idx] = self._spec.band_frequency(band_idx)
+                band_signal = scipy.signal.sosfilt(self._filters[frac_idx], signal)
+                Sxx[data_idx] = np.mean(band_signal ** 2)
+            signal = scipy.signal.sosfilt(self._dec_filter, signal)
+            signal = signal[0:-1:2]
+
+        if mode == 'psd':
+            Sxx = Sxx / (fu - fl)
+        elif mode != 'magnitude':
+            raise ValueError('Invalid spectrogram mode')
+
+        return Sxx, fc, fl, fu
 
 
 if __name__ == '__main__':
