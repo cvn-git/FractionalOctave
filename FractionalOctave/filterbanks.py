@@ -57,6 +57,11 @@ class Filterbanks:
         # Design decimation filter
         order, wn = scipy.signal.cheb2ord(max_w / 2, 1 - max_w / 2, 1.0, dec_stop)
         self._dec_filter = scipy.signal.cheby2(order, dec_stop, wn, output='sos')
+        ir = np.hstack(([1.0, np.zeros(999)]))
+        ir = scipy.signal.sosfilt(self._dec_filter, ir)
+        self._dec_filter_ir_length = np.argwhere(ir > (np.max(ir) * 1e-2)).flatten()[-1]
+        self._dec_filter_ir_length = (self._dec_filter_ir_length // 2) * 2  # force even
+        # print(f'IR len = {self._dec_filter_ir_length}')
 
         if plotting:
             f_span = np.linspace(0, sample_rate / 2, 1000)
@@ -188,7 +193,7 @@ class Filterbanks:
                 band_signal = scipy.signal.sosfilt(self._filters[frac_idx], signal)
                 Sxx[data_idx] = np.mean(band_signal ** 2)
             signal = scipy.signal.sosfilt(self._dec_filter, signal)
-            signal = signal[0:-1:2]
+            signal = signal[self._dec_filter_ir_length:-1:2]
 
         if mode == 'psd':
             Sxx = Sxx / (fu - fl)
