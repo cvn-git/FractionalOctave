@@ -156,23 +156,65 @@ class Filterbanks:
             Hdec = scipy.signal.sosfreqz(self._dec_filter, freq, fs=self._sample_rate)[1]
             return 20 * np.log10(np.abs(H) * np.abs(Hdec))
 
-    def spectrogram(self, signal, num_octaves=4, mode='psd'):
+    def filtering(self, signal, num_octaves=4, ringing_skipped=True):
         r"""
-        Compute spectrogram of a given signal
+        Do multi-rate filtering on a given signal and get individual band signals
 
         Parameters
         ----------
         signal : array-like
         num_octaves : Int
             Number of octaves for the spectrogram analysis
+        ringing_skipped : bool
+            To skip some leading samples in each band to reduce filters' ringing
+
+        Returns
+        -------
+        bands : list
+            List of band data, each element contains {'signal', 'sample_rate', 'start_time', 'fc', 'fl', 'fu'}
+        """
+        skipped_samples = self._dec_filter_ir_length if ringing_skipped else 0
+        frac = self._spec.fraction()
+        bands = [None] * (frac * num_octaves)
+        fs = self._sample_rate
+        start_time = 0.0
+        for octave_idx in range(num_octaves):
+            for frac_idx in range(frac):
+                band = {
+                    'sample_rate': fs,
+                    'start_time': start_time,
+                }
+                data_idx = (num_octaves - octave_idx - 1) * frac + frac_idx
+                band_idx = self._max_band_index - (octave_idx + 1) * frac + frac_idx + 1
+                band['fc'], band['fl'], band['fu'] = self._spec.band_frequency(band_idx)
+                band['signal'] = scipy.signal.sosfilt(self._filters[frac_idx], signal)
+                bands[data_idx] = band
+            signal = scipy.signal.sosfilt(self._dec_filter, signal)
+            signal = signal[skipped_samples:-1:2]
+            start_time += (skipped_samples / fs)
+            fs = fs / 2
+
+        return bands
+
+    def spectrum(self, signal, num_octaves=4, ringing_skipped=True, mode='psd'):
+        r"""
+        Compute fractional-octave spectrum of a given signal
+
+        Parameters
+        ----------
+        signal : array-like
+        num_octaves : Int
+            Number of octaves for the spectrogram analysis
+        ringing_skipped : bool
+            To skip some leading samples in each band to reduce filters' ringing
         mode : str
             'psd': power spectral density
             'power': total band power
 
         Returns
         -------
-        Sxx : ndarray
-            Spectrogram
+        spectrum : ndarray
+            Spectrum
         fc : ndarray
             Bands' centre frequencies
         fl : ndarray
@@ -180,27 +222,22 @@ class Filterbanks:
         fu : ndarray
             Bands' upper frequencies
         """
-        frac = self._spec.fraction()
-        Sxx = np.zeros(frac * num_octaves)
-        fc = np.zeros(frac * num_octaves)
-        fl = np.zeros(frac * num_octaves)
-        fu = np.zeros(frac * num_octaves)
-        for octave_idx in range(num_octaves):
-            for frac_idx in range(frac):
-                data_idx = (num_octaves - octave_idx - 1) * frac + frac_idx
-                band_idx = self._max_band_index - (octave_idx + 1) * frac + frac_idx + 1
-                fc[data_idx], fl[data_idx], fu[data_idx] = self._spec.band_frequency(band_idx)
-                band_signal = scipy.signal.sosfilt(self._filters[frac_idx], signal)
-                Sxx[data_idx] = np.mean(band_signal ** 2)
-            signal = scipy.signal.sosfilt(self._dec_filter, signal)
-            signal = signal[self._dec_filter_ir_length:-1:2]
+        bands = self.filtering(signal=signal, num_octaves=num_octaves, ringing_skipped=ringing_skipped)
+        num_bands = len(bands)
+        spectrum = np.zeros(num_bands)
+        fc = np.zeros(num_bands)
+        fl = np.zeros(num_bands)
+        fu = np.zeros(num_bands)
+        for idx, band in enumerate(bands):
+            fc[idx], fl[idx], fu[idx] = band['fc'], band['fl'], band['fu']
+            spectrum[idx] = np.mean(band['signal'] ** 2)
 
         if mode == 'psd':
-            Sxx = Sxx / (fu - fl)
-        elif mode != 'magnitude':
+            spectrum = spectrum / (fu - fl)
+        elif mode != 'power':
             raise ValueError('Invalid spectrogram mode')
 
-        return Sxx, fc, fl, fu
+        return spectrum, fc, fl, fu
 
 
 if __name__ == '__main__':

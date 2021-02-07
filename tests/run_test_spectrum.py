@@ -24,10 +24,10 @@ if __name__ == '__main__':
     plt.title('Spectrogram using SciPy')
 
     np.seterr(divide='ignore')
-    fb = Filterbanks(sample_rate=sample_rate, spec=Spec(fraction=6), dec_stop=200.0, plotting=True)
-    print(fb.check_conformance(plotting=True))
+    fb = Filterbanks(sample_rate=sample_rate, spec=Spec(fraction=6), dec_stop=200.0, plotting=False)
+    print(fb.check_conformance(plotting=False))
     plt.figure()
-    Sxx, f_span, *_ = fb.spectrogram(filtered_signal, num_octaves=11, mode='psd')
+    Sxx, f_span, *_ = fb.spectrum(filtered_signal, num_octaves=11, mode='psd')
     plt.semilogx(f_span, 10 * np.log10(Sxx))
     plt.grid(True)
     plt.xlabel('Frequency [Hz]')

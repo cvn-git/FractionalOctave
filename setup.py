@@ -6,10 +6,10 @@ setup(
     version = "0.1",
     author = "Cong-Van Nguyen",
     author_email = "congvannguyen@gmail.com",
-    description = ("Python package to do spectral analysis using fractional-octave filterbanks"),
+    description = "Python package to do spectral analysis using fractional-octave filterbanks",
     license = "MIT",
     url = "https://github.com/cvn-git/FractionalOctave",
-    packages=['FractionalOctave', 'tests'],
+    packages=['FractionalOctave'],
     install_requires=[
         "numpy",
         "scipy",
